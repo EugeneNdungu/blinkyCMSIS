@@ -1,0 +1,247 @@
+/**
+  =================================== GPIO ===================================
+  
+  Each pin of a gpio port refer to a corresponding bit of the gpio register
+  A gpio pin is connected to two buffers, an output buffer and an input 
+  buffer. There is an ENABLE line. When it is activated, the OUTPUT buffer 
+  gets activated while the INPUT buffer gets deactivated. 
+  The buffer is nothing more than two CMOS transistor, a PMOS transistor that
+  is active LOW and an NMOS transistor that is active HIGH. When you write a
+  HIGH to the output pin, the signal goes through an inverter and a LOW signal
+  is fed to the transistors. When the PMOS transistor is activated, it pulls 
+  the pin to VCC(HIGH). NMOS transistor pulls the in to GND(LOW) when activated.
+  The INPUT buffer is a rotation of the OUTPUT buffer in 180 degrees. When the 
+  input pin receives a HIGH signal, the PMOS transistor is activated and the 
+  input to the mcu is VCC(HIGH). When the input pin receives a LOW signal, the 
+  NMOS transistor is activated and the input to the mcu is driven to GND(LOW).
+ 
+  #### GPIO Input with HIGH Impedance State ####
+  
+  After you power up the MCU, by default, all the GPIO pins will be in INPUT 
+  mode with HIGH-Z state or floating state. Keeping a pin in floating state 
+  can lead to leakage current wich causes higher power consumption since the 
+  floating pin is highly susceptible to picking up circuit voltage noise.
+  
+  #### GPIO Input with Pull-Up / Pull-Down State ####
+  
+  The floating state is avoided by activating an internal pull up or pull down 
+  resistor. Configuration registers are used to enable the internal pull-up or 
+  pull-down resistors.
+  It is always safe to keep the unused GPIO pin in one of the states so that they
+  are reluctant to voltage fluctuations which may lead to leakage of current.
+ 
+  #### GPIO Output Mode: Open-Drain State ####
+ 
+  This is where the PMOS transistor is deactivated. This means that only the NMOS
+  transistor is in use. When the NMOS transistor is switched ON, the pin is driven 
+  to GND(LOW), when the NMOS transistor is switched OFF, the drain will be open, 
+  hence the output will be floating. 
+  Open-drain OUTPUT configuration can only pull down the pin, it cannot pull up the 
+  pin. It provides two states: GND and float(which is absolutely useless). An 
+  internal/external pull-up resistor is required to make this mode useful.
+ 
+  #### GPIO Output Mode: Open-Drain with Pull-Up Resistor ####
+  
+  Almost all MCUs have GPIO pins with internal pull-up resistors that can be activated
+  How to drive an LED with an Open-Drain OUTPUT pin?
+  - Activate the internal pull-up resistor.
+  - Connect LED to the pin.
+  - To turn ON the LED, write a 1(HIGH) to the pin. This signal is inverted and a 0(LOW)
+    is fed to the NMOS transistor. The NMOS transistor is therefore deactivated.
+    The OUTPUT pin is pulled to HIGH by the internal pull-up and the LED is ON.
+  - To turn OFF the LED, a 0 is fed to the pin. This signal is inverted and a 1(HIGH)
+    is fed to the NMOS transistor, therefore activating the transistor. The transistor 
+    then pulls the pin to GND(LOW), turning OFF the LED.
+ 
+  The value of the internal pull-up resistor is fixed and is usually in the range of 
+  10k - 15k.
+ 
+  ****** Driving the I2C bus ******
+  The SDA and SCL pins are usually in open drain configuration. An internal / external
+  pull-up resistor should be used with these pins. The correct value of the pull up resistor 
+  depends on the total capacitance on the bus and the frequency at which the bus works. 
+  Generally, resistors in the range of 4.7k - 10k works fine.
+ 
+  #### GPIO Output Mode: Push-Pull State ####
+ 
+  It is the default configuration when the pin is made output. The output will be pulled 
+  actively between high and low by using the two CMOS transistors(PMOS and NMOS).
+  How to drive an LED with a Push-Pull OUTPUT pin?
+  - Connect LED to the pin.
+  - Write a 1(HIGH) to the pin. This signal is inverted and a 0(LOW) signal is transmitted
+    to the PMOS and NMOS transistor. The PMOS transistor is activated while the NMOS transistor
+    is deactivated, driving the OUTPUT pin HIGH and thus turining the LED ON.
+  - Write A 0(LOW) to the pin. This signal is inverted and a 1(HIGH) signal is transmitted to 
+    the CMOS transistors. The PMOS is deactivated while the NMOS is activated, pulling the pin 
+    to GND and thus turning the LED OFF.
+ 
+  #### Optimizing IO Power Consumption ####
+  
+  When an INPUT pin is left in floating state, due to circuit noise, input voltage may be in 
+  indeterminate voltage region. indeterminate voltage level turns ON both the transistors with
+  "Resistance". Therefore, small amount of current will sink into the GND from the PMOS transistor
+  to the NMOS transistor.
+  In all Modern MCU, I/O pins use a SCHMITT trigger to combat the noise issue.
+ 
+  ========================= GPIO Programming Structure and Registers =========================
+ 
+  #### Registers ####
+ 
+  The number of GPIO registers may vary depending on te mcu vendor.
+  
+  ****** Mode Register ******
+  Used to set the direction/ mode of a pin. The following are the different modes for the pins:
+  - Input Mode.
+  - General Purpose Output Mode.
+  - Alternate Function Mode.
+  - Analog Mode.
+  Always note the DEFAULT Reset value of the GPIOx_MODER. It is not always 0.
+  The DEFAULT mode of the mcu pins is INPUT state.
+  ______ Input Configuration of a Microcontroller's GPIO pin ______
+  A general purpose IO pin can be used for many purposes. Some pins of the MCU cannot be used for all 
+  these purposes. So those are called as just pins but not GPIOs
+  When MCU pin is in INPUT mode it can be configured to issue an interrupt to the processor.
+  When configured as an INPUT, the output buffer is disabled, the Schmitt trigger input is activated, the
+  pull up and pull down resistors are activated depending on the value in the GPIOx_PUPDR register the 
+  gpio pin is read for every clock cycle of the GPIO bus and the value stored in the INPUT Data Register.
+  A read access to the input data register provides the I/O state.
+  As stated before, make sure to use an internal/external pull up resistor when configuring your pin as 
+  an INPUT. This is to avoid corruption of data whenever the pin is left in FLOATING state and the cct
+  generates noise. The value of the internal resistors(if it exists) can be found in the datasheet. If 
+  one is not available, use an external pull up resistor. One should also consider the recommended pull up
+  resistor for their aplication to determine whether to use an internal r external pull up/down resistor.
+  
+  ______ Output Configuration of a Microcontroller's GPIO pin ______
+  There are two output configuration modes: open drain and Push-pull.
+  ~Push-Pull~
+  EG: When 1(HIGH) signal is sent to the pin, the NMOS transistor is deactivated while the PMOS is activated,
+ 	   pulling the pin HIGH. Current thus flows from the pin to the load.
+  NB: Current sourcing is when current flows out of your mcu pin to the load.
+  ~Open-Drain~
+  The PMOS transistor does not exist. There are only two output possibilities: floating or LOW. To avoid the 
+  floating state of the pin, an internal or external pull up resistor should be used.
+  EG: Powering an LED. When 0(LOW) signal is written to the pin, the LED is grounded through the NMOS transistor.
+      To turn ON the LED,  an external pull up should be used. This is because the internal pull up is of high 
+      rating(~40k) and very little current will flow through the LED.
+ 
+  If to use push-pull or open-drain configuration.
+  This depends on the user application. If the two HIGH and LOW are required, then it is ok to use the push-pull.
+  In some configuration, such as for the I2C pins, an open drain configuration is required.
+ 
+  When configuring the pin as an output, the input circuit is also activated. That means you can read from the pin 
+  also.
+ 
+  ______ Alternate Function Configuration ______
+  Alternate function includes UART, SPI, I2C, Timer input channel, ADC nut channel.
+  The output data register will not have any influence on the pin 
+ 
+  ****** GPIO Port Input Data Register ******
+  Used to READ the I/O state of a particular gpio pin / port. You can only read from the register. The register is 
+  updated for every 1 Bus Clock Cycle.
+ 
+  ****** GPIO Port Output Data Register ******
+  Used to WRITE to a GPIO pin to make it HIGH or LOW. The bits can be read and written by the software.
+ 
+  ****** GPIO Port Output Type Register ******
+  Used to select the output type(push-pull or open-drain) of the pin when the pin is configured to output mode.
+ 
+  ****** GPIO Port Output Speed Register ******
+  Used to configure how quick the gpio transitions from H to L and L to H(this is controlling the slew rate of a pin).
+  There are four modes: low speed, medium speed, high speed and very high speed. The default state is low speed. Usually,
+  configuration of this register is left at default. However, in some aplications such as bit banging(where the mcu does
+  not have an i2c peripheral) one has t configure this register.
+ 
+  ****** GPIO Port Pull-Up/Pull-Down Register ******
+  Used to control the pull-up and pull-down registers. There are three modes: No pull up/pull down, pull-up and pull-down.
+  
+  All the GPIO port registers are connected over the System Bus to the processor.
+  
+  ========================= GPIO Alternated Functionality Register =========================
+  
+  A gpio pin in alternate functionality mode can be used for 16 different functionalities. For each pin, one has to check the
+  datasheet for the alternate function map(unfortunaltely did not find one for the stm32f103c8t6 mcu). The mode settings are 
+  configured in the alternate function register.
+  
+  ###### GPIO Alternate Function Register ######
+  There are two registers used to configure the alternalte functions of a gpio pin: GPIO alternate function low register and the
+  GPIO alternate function high register
+ 
+  ****** GPIO Alternate Function Low Register ******
+  Used to configure the alternate function mode for pins 0-7.
+  
+  ******GPIO Alternalte Function High Register ******
+  Used to configure the alternate function mode for pins 8-15.
+ 
+  For each pin, 4 bits are available in order to be able to configure either of the 16 different modes.
+ 
+  EXAMPLE:
+  Find out the alternate functionality mode(AFx) and AFR(Alternate Function Register) settings to make 
+  PB10 as UART4_TX
+  PB11 as UART4_RX
+  Answer:
+  Find the alternate function number for the desired alternate function in the alternate function map.
+  Write this number in the alternate function register.
+  (Unfortunately, for the stm32f103c8t6, it is a bit different. More on it once we get there. PATIENCE!!!)
+  
+  ========================= Enabling/Disabling GPIO Port Peripheral Clock =========================
+  
+  Find the bus to which the gpio port is connected.  Use the RCC peripheral clock enable register associated
+  with that bus to enable/disable the clock for the port in use.	
+ 
+  ========================= Peripheral Driver Development =========================
+  
+  ###### High Level Project Architecture ######
+  Sample Applications
+  			|
+ 		    |
+  		   \ /
+  Driver Layer(Peripheral .c & .h files[Hardware Access Layer]) 
+  	        |
+ 		    |
+  		   \ /
+  MCU's Peripherals(GPIO, SPI, I2C, UART) 
+  
+  ****** MCU Peripherals ****** 
+  Device Specific Header File.
+  
+  It contains the mcu specific details usch as:
+ 	1. The base addresses of various memories present in the mcu such as Flash, SRAM, ROM, etc
+ 	2. The base addresses of cvarious bus domains such as AHBx domain, APBx domain.
+ 	3. Base addresses of various peripherals present in different bus domains of the mcu
+ 	4. Clock mgt macros, i.e., clock enable and clock disabble macros.
+ 	5. IRQ definitions
+ 	6. Peripheral Rgister definiton structures.
+ 	7. Peripheral register bit definitions.
+ 	8. Other useful mcu configuration macros.
+ 
+  The header file will be used by both the application layer and the Driver files 
+  
+  ****** Driver Layer ******
+  ______GPIO Handle & Configuration Structure______
+  
+  It contains driver APIs to be used by the User/Sample application.
+  Some of the configurable items for the user application include:
+  	1. GPIO port name.
+  	2. GPIO pin number.
+  	3. GPIO mode.
+  	4. GPIO speed.
+  	5. GPIO outputtype.
+  	6. GPIO pullup-pulldown.
+  	7. GPIO alternate function mode.
+  	
+  The driver layer gives a configuration structure to the user application. The user application 
+  files/initializes that structure and passes it on to the driver APIs and the driver APIs will
+  decode that structure and take appropriate action like initializing the peripheral registers(defined
+  in the MCU Device Specific Header File) 
+  
+  ______GPIO Driver API Requirements______
+  Some of the APIs the GPIO Driver should provide for the user application include:
+  	1. GPIO initialization.
+  	2. Enable/Disable GPIO port clock.
+  	3. Read from a GPIO pin.
+  	4. Write to a GPIO pin.
+  	5. Configure alternate functionality.
+  	6. Interrupt Handling.
+  
+ */
+ 
